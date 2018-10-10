@@ -5,6 +5,46 @@
 #include "Reactduino.h"
 #include "ReactduinoISR.h"
 
+// ReactionEntry classes define the behaviour of each particular
+// Reaction
+
+void DelayReactionEntry::tick(Reactduino app, reaction r_pos) {
+    uint32_t elapsed;
+    uint32_t now = millis();
+    elapsed = now - this->last_trigger_time;
+    if (elapsed >= this->interval) {
+        this->last_trigger_time = now;
+        app->free(r_pos);
+        this->callback();
+    }
+}
+
+void RepeatReactionEntry::tick(Reactduino app, reaction r_pos) {
+    uint32_t elapsed;
+    uint32_t now = millis();
+    elapsed = now - this->last_trigger_time;
+    if (elapsed >= this->interval) {
+        this->last_trigger_time = now;
+        this->callback();
+    }
+}
+
+void StreamReactionEntry::tick(Reactduino app, reaction r_pos) {
+    if (stream->available()) {
+        this->callback();
+    }
+}
+
+void TickReactionEntry::tick(Reactduino app, reaction r_pos) {
+    this->callback();
+}
+
+void ISRReactionEntry::tick(Reactduino app, reaction r_pos) {
+    if (react_isr_check(this->pin_number)) {
+        this->callback();
+    }
+}
+
 // Need to define the static variable outside of the class
 Reactduino* Reactduino::app = NULL;
 
@@ -41,59 +81,7 @@ void Reactduino::tick(void)
             continue;
         }
 
-        switch (REACTION_TYPE(r_entry.flags)) {
-            case REACTION_TYPE_DELAY: {
-                uint32_t elapsed;
-
-                elapsed = now - r_entry.param1;
-
-                if (elapsed >= r_entry.param2) {
-                    free(r);
-                    r_entry.cb();
-                }
-
-                break;
-            }
-
-            case REACTION_TYPE_REPEAT: {
-                uint32_t elapsed;
-
-                elapsed = now - r_entry.param1;
-
-                if (elapsed >= r_entry.param2) {
-                    r_entry.param1 = now;
-                    r_entry.cb();
-                }
-
-                break;
-            }
-
-            case REACTION_TYPE_STREAM: {
-                Stream *stream;
-
-                stream = (Stream *) r_entry.ptr;
-
-                if (stream->available()) {
-                    r_entry.cb();
-                }
-
-                break;
-            }
-
-            case REACTION_TYPE_INTERRUPT: {
-                if (react_isr_check(r_entry.param2)) {
-                    r_entry.cb();
-                }
-
-                break;
-            }  
-
-            case REACTION_TYPE_TICK: {
-                r_entry.cb();
-
-                break;
-            }
-        }
+        r_entry->tick(app, r);
     }
 }
 

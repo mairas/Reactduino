@@ -39,6 +39,72 @@ typedef struct reaction_entry_t_ {
     react_callback cb;
 } reaction_entry_t;
 
+///////////////////////////////////////
+// ReactionEntry classes define the reaction behaviour
+
+class ReactionEntry {
+private:
+    react_callback callback;
+public:
+    ReactionEntry(react_callback callback);
+    uint8_t flags;
+    virtual void tick(Reactduino app, reaction r_pos) {}
+}
+
+class TimedReactionEntry : public ReactionEntry {
+protected:
+    uint32_t interval;
+    uint32_t last_trigger_time;
+public:
+    TimedReactionEntry(uint32_t interval, react_callback callback) : ReactionEntry(callback);
+}
+
+class DelayReactionEntry : public TimedReactionEntry {
+public:
+    DelayReactionEntry(uint32_t interval, react_callback callback) 
+        : TimedReactionEntry(interval, callback);
+    void tick(Reactduino app, reaction r_pos);
+}
+
+class RepeatReactionEntry: public TimedReactionEntry {
+public:
+    RepeatReactionEntry(uint32_t interval, react_callback callback) 
+        : TimedReactionEntry(interval, callback);
+    void tick(Reactduino app, reaction r_pos);
+}
+
+class UntimedReactionEntry : public ReactionEntry {
+public:
+    UntimedReactionEntry(react_callback callback) : ReactionEntry(callback);
+    virtual void tick(Reactduino app, reaction r_pos);
+}
+
+class StreamReactionEntry : public UntimedReactionEntry {
+private:
+    Stream *stream;
+public:
+    StreamReactionEntry(Stream *stream, react_callback callback)
+        : ReactionEntry(callback);
+    void tick(Reactduino app, reaction r_pos);
+}
+
+class TickReactionEntry : public UntimedReactionEntry {
+    void tick(Reactduino app, reaction r_pos);
+}
+
+class ISRReactionEntry : public UntimedReactionEntry {
+private:
+    uint32_t pin_number;
+public:
+    ISRReactionEntry(uint32_t pin_number, react_callback callback) : UntimedReactionEntry(callback);
+    int8_t isr;
+    void tick(Reactduino app, reaction r_pos);
+}
+
+
+///////////////////////////////////////
+// Reactduino main class implementation
+
 class Reactduino
 {
 public:
