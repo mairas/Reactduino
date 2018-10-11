@@ -67,8 +67,7 @@ public:
 
 class DelayReactionEntry : public TimedReactionEntry {
 public:
-    DelayReactionEntry(uint32_t interval, react_callback callback) 
-    : TimedReactionEntry(interval, callback) {}
+    DelayReactionEntry(uint32_t interval, react_callback callback); 
     void tick(Reactduino *app, reaction r_pos);
 };
 
@@ -83,7 +82,6 @@ class UntimedReactionEntry : public ReactionEntry {
 public:
     UntimedReactionEntry(react_callback callback)
     : ReactionEntry(callback) {}
-    virtual void tick(Reactduino *app, reaction r_pos);
 };
 
 class StreamReactionEntry : public UntimedReactionEntry {
@@ -106,7 +104,7 @@ class ISRReactionEntry : public UntimedReactionEntry {
 private:
     uint32_t pin_number;
 public:
-    ISRReactionEntry(uint32_t pin_number, react_callback callback)
+    ISRReactionEntry(uint32_t pin_number, int8_t isr, react_callback callback)
     : pin_number(pin_number), isr(isr), UntimedReactionEntry(callback) {}
     int8_t isr;
     void disable();

@@ -10,7 +10,6 @@
 
 DelayReactionEntry::DelayReactionEntry(uint32_t interval, react_callback callback) 
         : TimedReactionEntry(interval, callback) {
-    this->interval = interval;
     this->last_trigger_time = millis();
 }
 
@@ -84,7 +83,6 @@ void Reactduino::setup(void)
 void Reactduino::tick(void)
 {
     reaction r;
-    uint32_t now = millis();    
 
     for (r = 0; r < _top; r++) {
         ReactionEntry* r_entry = _table[r];
@@ -158,7 +156,7 @@ reaction Reactduino::onTick(react_callback cb)
 ReactionEntry* Reactduino::free(reaction r)
 {
     if (r == INVALID_REACTION) {
-        return;
+        return nullptr;
     }
 
     ReactionEntry *re = _table[r];
@@ -183,7 +181,7 @@ reaction Reactduino::alloc(ReactionEntry *re)
         if (r >= _top || _table[r] == nullptr) {
             _table[r] = re;
             // Reaction is enabled
-            _table[r]->flags = REACTION_FLAG_ENABLED;
+            //_table[r]->flags = REACTION_FLAG_ENABLED;
 
             // Move the stack pointer up if we add to the top
             if (r >= _top) {
