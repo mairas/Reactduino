@@ -8,85 +8,66 @@
 // Reaction classes define the behaviour of each particular
 // Reaction
 
-void Reaction::free(Reactduino& app, const reaction_idx r) {
-    this->disable();
-    app._table[r] = nullptr;
-
-    // Move the top of the stack pointer down if we free from the top
-    if (app._top == r + 1) {
-        app._top--;
-    }
-
-    return;
-}
-
 bool TimedReaction::operator<(const TimedReaction& other) {
     return (this->last_trigger_time + this->interval) >
         (other.last_trigger_time + other.interval);
 }
+
+void TimedReaction::alloc(Reactduino& app) {
+    app.timed_queue.push(this);
+}
+
+void TimedReaction::free(Reactduino& app) {
+    this->disable();
+}
+
+void TimedReaction::disable() {
+    this->enabled = false;
+}
+
 
 DelayReaction::DelayReaction(uint32_t interval, const react_callback callback) 
         : TimedReaction(interval, callback) {
     this->last_trigger_time = millis();
 }
 
-void DelayReaction::tick(Reactduino& app, const reaction_idx r_pos) {
-    uint32_t elapsed;
-    uint32_t now = millis();
-    elapsed = now - this->last_trigger_time;
-    if (elapsed >= this->interval) {
-        this->last_trigger_time = now;
-        app.free(r_pos);
-        this->callback();
-        delete this;
-    }
+void DelayReaction::tick(Reactduino& app) {
+    this->last_trigger_time = millis();
+    this->callback();
+    delete this;
 }
 
-void RepeatReaction::tick(Reactduino& app, const reaction_idx r_pos) {
-    uint32_t elapsed;
-    uint32_t now = millis();
-    elapsed = now - this->last_trigger_time;
-    if (elapsed >= this->interval) {
-        this->last_trigger_time = now;
-        this->callback();
-    }
+
+void RepeatReaction::tick(Reactduino& app) {
+    this->last_trigger_time = millis();
+    this->callback();
+    app.timed_queue.push(this);
 }
 
-void TimedReaction::alloc(Reactduino& app) {
-    app.priority_queue.push(*this);
-}
 
 void UntimedReaction::alloc(Reactduino& app) {
-    reaction_idx r;
-
-    for (r = 0; r < REACTDUINO_MAX_REACTIONS; r++) {
-        // If we're at the top of the stak or the allocated flag isn't set
-        if (r >= app._top || app._table[r] == nullptr) {
-            app._table[r] = this;
-            // Reaction is enabled
-            //_table[r]->flags = REACTION_FLAG_ENABLED;
-
-            // Move the stack pointer up if we add to the top
-            if (r >= app._top) {
-                app._top = r + 1;
-            }
-
-            return;
-        }
-    }
+    app.untimed_list.push_back(this);
 }
 
-void StreamReaction::tick(Reactduino& app, const reaction_idx r_pos) {
+void UntimedReaction::free(Reactduino& app) {
+    auto it = std::find(app.untimed_list.begin(), app.untimed_list.end(), this);
+    app.untimed_list.erase(it);
+}
+
+
+void StreamReaction::tick(Reactduino& app) {
     if (stream.available()) {
         this->callback();
     }
 }
 
-void TickReaction::tick(Reactduino& app, const reaction_idx r_pos) {
+
+void TickReaction::tick(Reactduino& app) {
     this->callback();
 }
 
-void ISRReaction::tick(Reactduino& app, const reaction_idx r_pos) {
+
+void ISRReaction::tick(Reactduino& app) {
     if (react_isr_check(this->pin_number)) {
         this->callback();
     }
@@ -96,6 +77,7 @@ void ISRReaction::disable() {
     detachInterrupt(this->pin_number);
     react_isr_free(this->isr);
 }
+
 
 // Need to define the static variable outside of the class
 Reactduino* Reactduino::app = NULL;
@@ -121,93 +103,96 @@ void Reactduino::setup(void)
     _setup();
 }
 
-void Reactduino::tick(void)
-{
-    reaction_idx r;
+void Reactduino::tickTimed() {
+    uint32_t now = millis();
+    uint32_t trigger_t;
+    TimedReaction* top;
 
-    for (r = 0; r < _top; r++) {
-        Reaction* r_entry = _table[r];
-
-        if (r_entry==nullptr) {
+    //Serial.println("Beginning tickTimed");
+    while (true) {
+        if (timed_queue.empty()) {
+            Serial.println("Empty queue");
+            break;
+        }
+        top = timed_queue.top();
+        if (!top->isEnabled()) {
+            Serial.println("Top item not enabled");
+            timed_queue.pop();
+            delete top;
             continue;
         }
+        trigger_t = top->getTriggerTime();
+        if (trigger_t<=now) {
+            //Serial.println("Triggered");
+            timed_queue.pop();
+            top->tick(*this);
+        } else {
+            //Serial.println("Not yet triggered");
+            break;
+        }
+    }
+    //Serial.println("Exiting tickTimed");
+}
 
-        r_entry->tick(*app, r);
+void Reactduino::tickUntimed() {
+    for (UntimedReaction* re : this->untimed_list) {
+        re->tick(*this);
     }
 }
 
-reaction_idx Reactduino::onDelay(const uint32_t t, const react_callback cb) {
-    return alloc(new DelayReaction(t, cb));
+void Reactduino::tick() {
+    tickTimed();
+    tickUntimed();
 }
 
-reaction_idx Reactduino::onRepeat(const uint32_t t, const react_callback cb) {
-    return alloc(new RepeatReaction(t, cb));
+DelayReaction* Reactduino::onDelay(const uint32_t t, const react_callback cb) {
+    DelayReaction* dre = new DelayReaction(t, cb);
+    dre->alloc(*this);
+    return dre;
 }
 
-reaction_idx Reactduino::onAvailable(Stream& stream, const react_callback cb)
-{
-    return alloc(new StreamReaction(stream, cb));
+RepeatReaction* Reactduino::onRepeat(const uint32_t t, const react_callback cb) {
+    RepeatReaction* rre = new RepeatReaction(t, cb);
+    rre->alloc(*this);
+    return rre;
 }
 
-reaction_idx Reactduino::onInterrupt(const uint8_t number, const react_callback cb, int mode)
-{
-    reaction_idx r;
+StreamReaction* Reactduino::onAvailable(Stream& stream, const react_callback cb) {
+    StreamReaction *sre = new StreamReaction(stream, cb);
+    sre->alloc(*this);
+    return sre;
+}
+
+ISRReaction* Reactduino::onInterrupt(const uint8_t number, const react_callback cb, int mode) {
     int8_t isr;
 
     // Obtain and use ISR to handle the interrupt, see: ReactduinoISR.c/.h
 
     isr = react_isr_alloc();
 
-    if (isr == INVALID_ISR) {
-        return INVALID_REACTION;
-    }
-
-    r = alloc(new ISRReaction(number, isr, cb));
-
-    if (r == INVALID_REACTION) {
-        react_isr_free(isr);
-        return INVALID_REACTION;
-    }
-
+    ISRReaction* isrre = new ISRReaction(number, isr, cb);
+    isrre->alloc(*this);
     attachInterrupt(number, react_isr_get(isr), mode);
 
-    return r;
+    return isrre;
 }
 
-reaction_idx Reactduino::onPinRising(const uint8_t pin, const react_callback cb)
-{
+ISRReaction* Reactduino::onPinRising(const uint8_t pin, const react_callback cb) {
     return onInterrupt(digitalPinToInterrupt(pin), cb, RISING);
 }
 
-reaction_idx Reactduino::onPinFalling(const uint8_t pin, const react_callback cb)
-{
+ISRReaction* Reactduino::onPinFalling(const uint8_t pin, const react_callback cb) {
     return onInterrupt(digitalPinToInterrupt(pin), cb, FALLING);
 }
 
-reaction_idx Reactduino::onPinChange(const uint8_t pin, const react_callback cb)
-{
+ISRReaction* Reactduino::onPinChange(const uint8_t pin, const react_callback cb) {
     return onInterrupt(digitalPinToInterrupt(pin), cb, CHANGE);
 }
 
-reaction_idx Reactduino::onTick(const react_callback cb)
-{
-    return alloc(new TickReaction(cb));
-}
-
-Reaction* Reactduino::free(const reaction_idx r)
-{
-    if (r == INVALID_REACTION) {
-        return nullptr;
-    }
-
-    Reaction* re = _table[r];
-
-    if (re==nullptr) {
-        return nullptr;
-    }
-
-    re->free(*app, r);
-    return re;
+TickReaction* Reactduino::onTick(const react_callback cb) {
+    TickReaction* tre = new TickReaction(cb);
+    tre->alloc(*this);
+    return tre;
 }
 
 void Reactduino::alloc(Reaction *re)
