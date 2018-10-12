@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <functional>
+#include <queue>
 
 #define INVALID_REACTION -1
 
@@ -56,9 +57,13 @@ class TimedReaction : public Reaction {
 protected:
     const uint32_t interval;
     uint32_t last_trigger_time;
+    bool enabled;
 public:
-    TimedReaction(uint32_t interval, react_callback callback) 
-    : interval(interval), Reaction(callback) {}
+    TimedReaction(const uint32_t interval, const react_callback callback) 
+    : interval(interval), Reaction(callback) {
+        enabled = true;
+    }
+    bool operator<(const TimedReaction& other);
 };
 
 class DelayReaction : public TimedReaction {
@@ -136,6 +141,7 @@ public:
 
 private:
     const react_callback _setup;
+    std::priority_queue<TimedReaction&, std::vector<TimedReaction&>, std::greater<TimedReaction&>> timed_queue;
     Reaction* _table[REACTDUINO_MAX_REACTIONS];
     reaction_idx _top = 0;
 

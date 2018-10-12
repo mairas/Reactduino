@@ -20,6 +20,11 @@ void Reaction::free(Reactduino& app, const reaction_idx r) {
     return;
 }
 
+bool TimedReaction::operator<(const TimedReaction& other) {
+    return (this->last_trigger_time + this->interval) >
+        (other.last_trigger_time + other.interval);
+}
+
 DelayReaction::DelayReaction(uint32_t interval, const react_callback callback) 
         : TimedReaction(interval, callback) {
     this->last_trigger_time = millis();
@@ -44,6 +49,30 @@ void RepeatReaction::tick(Reactduino& app, const reaction_idx r_pos) {
     if (elapsed >= this->interval) {
         this->last_trigger_time = now;
         this->callback();
+    }
+}
+
+void TimedReaction::alloc(Reactduino& app) {
+    app.priority_queue.push(*this);
+}
+
+void UntimedReaction::alloc(Reactduino& app) {
+    reaction_idx r;
+
+    for (r = 0; r < REACTDUINO_MAX_REACTIONS; r++) {
+        // If we're at the top of the stak or the allocated flag isn't set
+        if (r >= app._top || app._table[r] == nullptr) {
+            app._table[r] = this;
+            // Reaction is enabled
+            //_table[r]->flags = REACTION_FLAG_ENABLED;
+
+            // Move the stack pointer up if we add to the top
+            if (r >= app._top) {
+                app._top = r + 1;
+            }
+
+            return;
+        }
     }
 }
 
@@ -181,25 +210,7 @@ Reaction* Reactduino::free(const reaction_idx r)
     return re;
 }
 
-reaction_idx Reactduino::alloc(Reaction *re)
+void Reactduino::alloc(Reaction *re)
 {
-    reaction_idx r;
-
-    for (r = 0; r < REACTDUINO_MAX_REACTIONS; r++) {
-        // If we're at the top of the stak or the allocated flag isn't set
-        if (r >= _top || _table[r] == nullptr) {
-            _table[r] = re;
-            // Reaction is enabled
-            //_table[r]->flags = REACTION_FLAG_ENABLED;
-
-            // Move the stack pointer up if we add to the top
-            if (r >= _top) {
-                _top = r + 1;
-            }
-
-            return r;
-        }
-    }
-
-    return INVALID_REACTION;
+    re->alloc(*this);
 }
